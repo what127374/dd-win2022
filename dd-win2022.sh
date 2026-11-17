@@ -63,7 +63,7 @@ done
 [[ $MTU =~ ^[0-9]{3,4}$ ]] && ((10#$MTU >= 1280 && 10#$MTU <= 9000)) || fail 'MTU must be 1280..9000.'
 [[ $RDP_PORT =~ ^[0-9]{1,5}$ ]] && ((10#$RDP_PORT >= 1 && 10#$RDP_PORT <= 65535)) || fail 'RDP port must be 1..65535.'
 MTU=$((10#$MTU)); RDP_PORT=$((10#$RDP_PORT))
-for cmd in ip awk findmnt lsblk curl sha256sum od sed gzip cpio mktemp wc tr find sort; do
+for cmd in ip awk findmnt lsblk curl sha256sum od sed gzip cpio chroot mktemp wc tr find sort; do
     command -v "$cmd" >/dev/null || fail "Missing $cmd. Ubuntu/Debian: apt-get update && apt-get install -y curl ca-certificates iproute2 util-linux cpio gzip gawk"
 done
 case "$(findmnt -n -o FSTYPE /)" in
@@ -165,6 +165,10 @@ unset TEMP_PASSWORD
 INITRD_DIR=/reinstall-tmp/initrd
 [[ -f $INITRD_DIR/trans.sh && -f /reinstall-initrd ]] || fail 'Unexpected engine layout; refusing to reboot.'
 printf '%s  %s\n' "$TRANS_SHA256" "$INITRD_DIR/trans.sh" | sha256sum -c -
+# trans.sh runs under Alpine BusyBox ash, not the host's Bash.
+# Use the actual initrd interpreter, including its bundled loader/libraries.
+[[ -x $INITRD_DIR/bin/busybox ]] || fail 'Alpine initrd BusyBox is missing; refusing to reboot.'
+chroot "$INITRD_DIR" /bin/busybox ash -n /trans.sh || fail 'Original Live OS script failed Alpine ash syntax validation.'
 cp "$INITRD_DIR/trans.sh" "$STATE_DIR/trans.original.sh"
 cat >"$SCRATCH/mtu-patch" <<PATCH
     # dd-win2022: preserve /26 without relying on an in-subnet default gateway.
@@ -183,10 +187,11 @@ awk -v patch="$SCRATCH/mtu-patch" '
     inside && /^}$/ { inside=0 }
     END { if(hits!=1) exit 23 }
 ' "$INITRD_DIR/trans.sh" >"$SCRATCH/trans.patched.sh"
-bash -n "$SCRATCH/trans.patched.sh"
 cp "$SCRATCH/trans.patched.sh" "$INITRD_DIR/trans.sh"
 # Apply MTU before the Live OS downloads images and drivers.
 sed -i "/^mount \/ -o remount,size=100%$/a ip link set dev $DEV mtu $MTU" "$INITRD_DIR/trans.sh"
+# Validate the final file after both the network and MTU patches.
+chroot "$INITRD_DIR" /bin/busybox ash -n /trans.sh || fail 'Patched Live OS script failed Alpine ash syntax validation.'
 # Match the boot initrd's local.d copy if the engine supplied one.
 if [[ -f $INITRD_DIR/etc/local.d/trans.start ]]; then
     cp "$INITRD_DIR/trans.sh" "$INITRD_DIR/etc/local.d/trans.start"
