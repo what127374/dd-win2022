@@ -10,7 +10,7 @@ export LC_ALL=C
 ENGINE_COMMIT=a2b7d7ddd73a3265b5321f3cbfd0e3c3ceb9cdc2
 ENGINE_SHA256=ad01271d5b46fd73306172f569cd8f1ed88c8d2b4c43053673f2dc8925fc80c8
 TRANS_SHA256=1d73eb11746c7656dfd70113bda67ff22b4637255ecaa3452773b88f8801fc69
-IMAGE='https://yumwhat1.dpdns.org/Win_Server2022_64_Administrator_nat.ee.gz'
+IMAGE='https://pub-530b5c476dbe45159f0292901a131bef.r2.dev/Win_Server2022_64_Administrator_nat.ee.gz'
 EXPECTED_IP=65.75.201.189
 MTU=1400
 RDP_PORT=3389
@@ -113,9 +113,11 @@ curl --fail --show-error --silent --location --proto '=https' --proto-redir '=ht
 printf '%s  %s\n' "$ENGINE_SHA256" "$SCRATCH/reinstall.sh" | sha256sum -c -
 bash -n "$SCRATCH/reinstall.sh"
 # Download only a bounded prefix. Reject error pages and non-gzip images.
-curl --fail --show-error --silent --location --proto '=https' --proto-redir '=https' \
+if ! curl --fail --show-error --silent --location --proto '=https' --proto-redir '=https' \
     --connect-timeout 15 --max-time 45 --retry 1 --range 0-1023 --max-filesize 2097152 \
-    "$IMAGE" -o "$SCRATCH/image-prefix"
+    "$IMAGE" -o "$SCRATCH/image-prefix"; then
+    fail 'Cannot download the image probe (DNS, HTTPS, access or range support). No route, boot or disk changes made. Retry with a working HTTPS gzip URL using --image URL.'
+fi
 [[ $(od -An -N2 -tx1 "$SCRATCH/image-prefix" | tr -d ' \n') == 1f8b ]] || fail 'Image probe is not gzip. Check the image URL or download restrictions.'
 printf '\nEngine hash and gzip image probe passed. Full image integrity/bootability is not proven by this check.\n'
 if ((CHECK_ONLY)); then
